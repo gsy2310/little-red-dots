@@ -1,0 +1,800 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Little Red Dots &ndash; Singapore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<style>
+  :root{
+    --ground:#F7F1E3;
+    --panel:#FFFDF6;
+    --panel-2:#FCF4E1;
+    --ink:#2B241B;
+    --ink-dim:#786B57;
+    --ink-faint:#A99C86;
+    --line:#E6D9BC;
+    --line-2:#D8C89E;
+    --food:#E0447E;
+    --food-ink:#A02259;
+    --food-bg:#FBE1EC;
+    --place:#2563EB;
+    --place-ink:#14408F;
+    --place-bg:#DCE7FB;
+    --shadow: 0 1px 2px rgba(43,36,27,.08), 0 10px 28px -12px rgba(43,36,27,.32);
+    --focus:#C23268;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --ground:#15181A; --panel:#1C2023; --panel-2:#20262A;
+      --ink:#EEE7D8; --ink-dim:#9C9484; --ink-faint:#5F594C;
+      --line:#2B3033; --line-2:#383E42;
+      --food:#FF7EB6; --food-ink:#FFC0DD; --food-bg:#3D2430;
+      --place:#6FA6FF; --place-ink:#BBD5FF; --place-bg:#1E2B40;
+      --shadow: 0 1px 2px rgba(0,0,0,.35), 0 14px 30px -12px rgba(0,0,0,.6);
+      --focus:#FF7EB6;
+    }
+  }
+  :root[data-theme="dark"]{
+    --ground:#15181A; --panel:#1C2023; --panel-2:#20262A;
+    --ink:#EEE7D8; --ink-dim:#9C9484; --ink-faint:#5F594C;
+    --line:#2B3033; --line-2:#383E42;
+    --food:#FF7EB6; --food-ink:#FFC0DD; --food-bg:#3D2430;
+    --place:#6FA6FF; --place-ink:#BBD5FF; --place-bg:#1E2B40;
+    --shadow: 0 1px 2px rgba(0,0,0,.35), 0 14px 30px -12px rgba(0,0,0,.6);
+    --focus:#FF7EB6;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;background:var(--ground);}
+  body{
+    color:var(--ink);
+    font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+    display:flex;flex-direction:column;height:100dvh;overflow:hidden;
+    -webkit-font-smoothing:antialiased;
+  }
+  h1,h2,h3{font-family:'Fraunces',Georgia,'Times New Roman',serif;margin:0;text-wrap:balance;}
+  button{font-family:inherit;}
+  [hidden]{display:none!important;}
+
+  /* ---- top bar ---- */
+  .topbar{
+    flex:none;display:flex;align-items:center;gap:10px;
+    padding:10px 14px;background:var(--panel);border-bottom:1px solid var(--line);
+    box-shadow:var(--shadow); position:relative; z-index:20;
+  }
+  .brand{display:flex;align-items:baseline;gap:6px;flex:none;}
+  .brand h1{font-size:1.05rem;font-weight:600;white-space:nowrap;}
+  .brand .dot{color:var(--food);}
+  .brand small{display:none;}
+
+  .searchwrap{position:relative;flex:1 1 auto;min-width:0;max-width:520px;}
+  .searchbox{
+    display:flex;align-items:center;gap:8px;background:var(--panel-2);
+    border:1px solid var(--line-2);border-radius:999px;padding:0 14px;height:40px;
+  }
+  .searchbox svg{flex:none;opacity:.55;}
+  .searchbox input{
+    border:none;background:none;outline:none;font-size:.92rem;color:var(--ink);
+    width:100%;height:100%;font-family:inherit;
+  }
+  .searchbox .clear{flex:none;border:none;background:none;color:var(--ink-faint);cursor:pointer;font-size:1rem;padding:4px;display:none;}
+  .searchbox .clear.show{display:block;}
+  .results{
+    position:absolute;top:calc(100% + 6px);left:0;right:0;background:var(--panel);
+    border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);
+    max-height:320px;overflow-y:auto;z-index:30;
+  }
+  .results button{
+    width:100%;text-align:left;border:none;background:none;padding:10px 14px;
+    cursor:pointer;display:flex;flex-direction:column;gap:1px;border-bottom:1px solid var(--line);
+  }
+  .results button:last-child{border-bottom:none;}
+  .results button:hover{background:var(--panel-2);}
+  .results .rname{font-size:.88rem;font-weight:600;color:var(--ink);}
+  .results .rtype{font-size:.74rem;color:var(--ink-faint);}
+  .results .rmsg{padding:12px 14px;font-size:.82rem;color:var(--ink-faint);}
+  .results .rsection{padding:8px 14px 4px;font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-faint);background:var(--panel-2);}
+
+  .topbar-actions{display:flex;gap:8px;flex:none;}
+  .btn{
+    border:1px solid var(--line-2);background:var(--panel);color:var(--ink);
+    font-size:.86rem;font-weight:600;padding:9px 14px;border-radius:999px;cursor:pointer;
+    display:inline-flex;align-items:center;gap:6px;white-space:nowrap;transition:background .15s,transform .12s;
+  }
+  .btn:hover{background:var(--panel-2);}
+  .btn:active{transform:scale(.96);}
+  .btn.primary{background:var(--food);border-color:transparent;color:#fff;}
+  .btn.primary:hover{background:var(--food-ink);}
+  .btn.primary[aria-pressed="true"]{background:var(--ink);}
+  .btn:focus-visible{outline:2px solid var(--focus);outline-offset:2px;}
+  .count-badge{background:var(--food);color:#fff;border-radius:999px;font-size:.68rem;font-weight:700;padding:1px 6px;}
+  .pinsbtn{display:inline-flex;align-items:center;gap:6px;}
+  .pinsbtn .swatch{width:8px;height:8px;border-radius:50%;flex:none;}
+  .pinsbtn.food .swatch{background:var(--food);}
+  .pinsbtn.food .count-badge{background:var(--food);}
+  .pinsbtn.place .swatch{background:var(--place);}
+  .pinsbtn.place .count-badge{background:var(--place);}
+  .pinsbtn[aria-pressed="true"].food{background:var(--food-bg);border-color:var(--food);color:var(--food-ink);}
+  .pinsbtn[aria-pressed="true"].place{background:var(--place-bg);border-color:var(--place);color:var(--place-ink);}
+
+  /* ---- filter chip overlay ---- */
+  .chiprow{
+    position:absolute;top:12px;left:12px;z-index:15;display:flex;gap:6px;
+    background:var(--panel);border:1px solid var(--line);padding:4px;border-radius:999px;box-shadow:var(--shadow);
+  }
+  .chip{border:none;background:transparent;color:var(--ink-dim);font-size:.82rem;font-weight:500;padding:6px 12px;border-radius:999px;cursor:pointer;display:flex;align-items:center;gap:6px;}
+  .chip[aria-pressed="true"]{background:var(--ink);color:var(--panel);}
+  .chip .swatch{width:8px;height:8px;border-radius:50%;flex:none;}
+  .chip[data-filter="food"] .swatch{background:var(--food);}
+  .chip[data-filter="place"] .swatch{background:var(--place);}
+  .chip[data-filter="all"] .swatch{background:linear-gradient(135deg,var(--food) 50%,var(--place) 50%);}
+
+  /* ---- map area ---- */
+  .maparea{flex:1;position:relative;min-height:0;z-index:0;}
+  #map{position:absolute;inset:0;}
+  #map.placing{cursor:crosshair;}
+  .leaflet-control-attribution{font-size:10px;}
+
+  .locatebtn{
+    position:absolute;z-index:15;right:10px;bottom:110px;width:38px;height:38px;
+    border-radius:10px;border:1px solid var(--line-2);background:var(--panel);color:var(--ink);
+    box-shadow:var(--shadow);cursor:pointer;display:flex;align-items:center;justify-content:center;
+  }
+  .locatebtn:active{transform:scale(.95);}
+
+  /* ---- pin markers ---- */
+  .pinicon{position:relative;filter:drop-shadow(0 2px 2px rgba(0,0,0,.35));}
+  .pinicon svg{display:block;}
+  .pinicon.food{color:var(--food);}
+  .pinicon.place{color:var(--place);}
+  .pinicon .body{fill:currentColor;stroke:var(--panel);stroke-width:1.1;}
+  .pinicon .core{fill:var(--panel);}
+  .searchmarker{color:var(--ink-dim);}
+
+  /* ---- drawer (pin list) ---- */
+  /* Scrim and drawer start below the topbar (height tracked in --topbar-h) so
+     the Food Pins / Place Pins buttons stay visible and clickable while the
+     drawer is open, letting you switch categories without closing it first. */
+  .scrim{position:fixed;top:var(--topbar-h,60px);right:0;bottom:0;left:0;background:rgba(20,16,10,.32);z-index:39;}
+  .drawer{
+    position:fixed;top:var(--topbar-h,60px);right:0;height:calc(100dvh - var(--topbar-h,60px));width:340px;max-width:88vw;
+    background:var(--panel);box-shadow:var(--shadow);z-index:40;
+    transform:translateX(100%);transition:transform .22s ease;display:flex;flex-direction:column;
+  }
+  .drawer.open{transform:translateX(0);}
+  .drawer-head{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--line);}
+  .drawer-head h2{font-size:1.05rem;font-weight:600;}
+  .drawer-close{border:none;background:none;color:var(--ink-faint);font-size:1.2rem;cursor:pointer;padding:4px 6px;}
+  .drawer-tools{display:flex;gap:8px;padding:10px 16px;border-bottom:1px solid var(--line);}
+  .drawer-tools .btn{font-size:.78rem;padding:7px 10px;flex:1;justify-content:center;}
+  .pinlist{list-style:none;margin:0;padding:8px;flex:1;overflow-y:auto;}
+  .pinlist .sectionhead{display:flex;align-items:center;gap:7px;padding:12px 10px 6px;font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-faint);}
+  .pinlist .sectionhead:first-child{padding-top:6px;}
+  .pinlist .sectionhead .swatch{width:8px;height:8px;border-radius:50%;flex:none;}
+  .pinlist .sectionhead.food .swatch{background:var(--food);}
+  .pinlist .sectionhead.place .swatch{background:var(--place);}
+  .pinrow{display:flex;align-items:flex-start;gap:10px;padding:10px;border-radius:10px;cursor:pointer;border:1px solid transparent;width:100%;text-align:left;background:none;}
+  .pinrow:hover{background:var(--panel-2);}
+  .pinrow .dot{width:9px;height:9px;border-radius:50%;margin-top:6px;flex:none;}
+  .pinrow.food-row .dot{background:var(--food);}
+  .pinrow.place-row .dot{background:var(--place);}
+  .pinrow .meta{min-width:0;flex:1;}
+  .pinrow .name{font-weight:600;font-size:.92rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .pinrow .note{color:var(--ink-dim);font-size:.8rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .pinrow .del{flex:none;border:none;background:none;color:var(--ink-faint);font-size:1rem;cursor:pointer;padding:2px 6px;border-radius:6px;}
+  .pinrow .del:hover{color:var(--food);background:var(--food-bg);}
+  .empty-state{padding:32px 20px;text-align:center;color:var(--ink-dim);font-size:.86rem;}
+  .empty-state .big{font-size:1.7rem;margin-bottom:8px;}
+  .drawer-foot{padding:10px 16px;border-top:1px solid var(--line);font-size:.72rem;color:var(--ink-faint);display:flex;align-items:center;gap:6px;}
+  .drawer-foot .dot2{width:6px;height:6px;border-radius:50%;background:var(--place);flex:none;}
+
+  /* ---- popup content (leaflet) ---- */
+  .leaflet-popup-content-wrapper{border-radius:12px;background:var(--panel);color:var(--ink);}
+  .leaflet-popup-tip{background:var(--panel);}
+  .poptitle{font-family:'Fraunces',serif;font-weight:600;font-size:1rem;margin-bottom:2px;}
+  .popcat{display:inline-block;font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;padding:2px 8px;border-radius:999px;margin-bottom:6px;}
+  .popcat.food{background:var(--food-bg);color:var(--food-ink);}
+  .popcat.place{background:var(--place-bg);color:var(--place-ink);}
+  .popnote{font-size:.84rem;color:var(--ink-dim);margin-bottom:8px;max-width:200px;}
+  .poprow{display:flex;gap:6px;flex-wrap:wrap;}
+  .popbtn{border:1px solid var(--line-2);background:var(--panel-2);color:var(--ink);font-size:.78rem;font-weight:600;padding:6px 10px;border-radius:8px;cursor:pointer;text-decoration:none;display:inline-block;line-height:1.3;}
+  .popbtn.danger:hover{background:var(--food-bg);color:var(--food-ink);border-color:var(--food);}
+
+  /* ---- add / edit form sheet ---- */
+  .formsheet{
+    position:fixed;z-index:60;background:var(--panel);border:1px solid var(--line);border-radius:16px;
+    box-shadow:var(--shadow);width:320px;max-width:calc(100vw - 32px);padding:18px 20px 20px;
+    left:50%;top:50%;transform:translate(-50%,-50%);
+  }
+  .formsheet h3{font-size:1.05rem;font-weight:600;margin-bottom:2px;}
+  .formsheet .coord{color:var(--ink-faint);font-size:.72rem;margin-bottom:12px;font-family:monospace;}
+  .cat-toggle{display:flex;gap:8px;margin-bottom:12px;}
+  .cat-btn{flex:1;border:1.5px solid var(--line-2);background:var(--panel-2);color:var(--ink-dim);padding:9px 8px;border-radius:10px;font-size:.86rem;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;}
+  .cat-btn .swatch{width:9px;height:9px;border-radius:50%;}
+  .cat-btn[data-cat="food"] .swatch{background:var(--food);}
+  .cat-btn[data-cat="place"] .swatch{background:var(--place);}
+  .cat-btn[aria-pressed="true"][data-cat="food"]{background:var(--food-bg);border-color:var(--food);color:var(--food-ink);}
+  .cat-btn[aria-pressed="true"][data-cat="place"]{background:var(--place-bg);border-color:var(--place);color:var(--place-ink);}
+  .field{display:flex;flex-direction:column;gap:5px;margin-bottom:12px;}
+  .field label{font-size:.76rem;font-weight:600;color:var(--ink-dim);text-transform:uppercase;letter-spacing:.03em;}
+  .field input,.field textarea{font-family:'Inter',sans-serif;border:1px solid var(--line-2);background:var(--ground);color:var(--ink);border-radius:9px;padding:9px 11px;font-size:.92rem;resize:none;}
+  .field textarea{min-height:56px;}
+  .formsheet .row{display:flex;gap:8px;margin-top:4px;}
+  .formsheet .row button{flex:1;padding:9px 10px;border-radius:9px;font-size:.88rem;font-weight:600;cursor:pointer;}
+  .formsheet .row .cancel{border:1px solid var(--line-2);background:var(--panel-2);color:var(--ink);}
+  .formsheet .row .save{border:none;background:var(--food);color:#fff;}
+  .formsheet .row .save[data-cat="place"]{background:var(--place);}
+
+  .toast{
+    position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--ground);
+    padding:10px 18px;border-radius:999px;font-size:.84rem;font-weight:500;box-shadow:var(--shadow);z-index:70;
+    opacity:0;pointer-events:none;transition:opacity .2s ease;
+  }
+  .toast.show{opacity:1;}
+
+  @media (max-width:640px){
+    .brand h1{font-size:.95rem;}
+    .topbar{padding:8px 10px;gap:6px;flex-wrap:wrap;}
+    .brand{order:1;flex:1 1 auto;}
+    .topbar-actions{order:2;flex:none;gap:6px;}
+    .searchwrap{order:3;flex:1 1 100%;max-width:none;}
+    .btn{padding:8px 10px;font-size:.8rem;}
+    .drawer{width:100%;max-width:100%;}
+  }
+  @media (max-width:420px){
+    .topbar-actions{gap:5px;}
+    .btn{padding:7px 8px;font-size:.74rem;}
+    .pinsbtn .pinword{display:none;}
+  }
+</style>
+</head>
+<body>
+
+  <header class="topbar" id="topbar">
+    <div class="brand"><h1>Little Red <span class="dot">Dots</span></h1></div>
+    <div class="searchwrap">
+      <div class="searchbox">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input id="searchInput" type="text" placeholder="Search Singapore &ndash; hawker centres, malls, streets&hellip;" autocomplete="off">
+        <button class="clear" id="searchClear" aria-label="Clear search">&times;</button>
+      </div>
+      <div class="results" id="results" hidden></div>
+    </div>
+    <div class="topbar-actions">
+      <button class="btn primary" id="addBtn" aria-pressed="false"><span class="label">+ Add a pin</span></button>
+      <button class="btn pinsbtn food" id="foodPinsBtn" aria-pressed="false"><span class="swatch"></span><span class="label">Food <span class="pinword">Pins</span></span> <span class="count-badge" id="foodCountBadge">0</span></button>
+      <button class="btn pinsbtn place" id="placePinsBtn" aria-pressed="false"><span class="swatch"></span><span class="label">Place <span class="pinword">Pins</span></span> <span class="count-badge" id="placeCountBadge">0</span></button>
+    </div>
+  </header>
+
+  <div class="maparea">
+    <div class="chiprow" role="group" aria-label="Filter pins">
+      <button class="chip" data-filter="all" aria-pressed="true"><span class="swatch"></span>All</button>
+      <button class="chip" data-filter="food" aria-pressed="false"><span class="swatch"></span>Food</button>
+      <button class="chip" data-filter="place" aria-pressed="false"><span class="swatch"></span>Places</button>
+    </div>
+    <div id="map"></div>
+    <button class="locatebtn" id="locateBtn" title="Find my location" aria-label="Find my location">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
+    </button>
+  </div>
+
+  <div class="scrim" id="scrim" hidden></div>
+
+  <div class="drawer" id="drawer">
+    <div class="drawer-head">
+      <h2>Your pins</h2>
+      <button class="drawer-close" id="drawerClose" aria-label="Close">&times;</button>
+    </div>
+    <div class="drawer-tools">
+      <button class="btn" id="exportBtn">Export</button>
+      <button class="btn" id="importBtn">Import</button>
+      <input type="file" id="importFile" accept="application/json" hidden>
+    </div>
+    <ul class="pinlist" id="pinList"></ul>
+    <div class="empty-state" id="emptyState">
+      <div class="big">&#128205;</div>
+      <div>No pins yet.<br>Search a place or tap <strong>+ Add a pin</strong>, then tap the map.</div>
+    </div>
+    <div class="drawer-foot"><span class="dot2"></span>Saved on this device &ndash; use Export / Import to move pins to your phone</div>
+  </div>
+
+  <div class="formsheet" id="formSheet" hidden>
+    <h3 id="formTitle">Add a pin</h3>
+    <div class="coord" id="formCoord">&mdash;</div>
+    <div class="cat-toggle" role="group" aria-label="Category">
+      <button class="cat-btn" data-cat="food" aria-pressed="true"><span class="swatch"></span>Food</button>
+      <button class="cat-btn" data-cat="place" aria-pressed="false"><span class="swatch"></span>Place</button>
+    </div>
+    <div class="field">
+      <label for="pinName">Name</label>
+      <input id="pinName" type="text" maxlength="60" placeholder="e.g. Tian Tian Chicken Rice" autocomplete="off">
+    </div>
+    <div class="field">
+      <label for="pinNote">Short note</label>
+      <textarea id="pinNote" maxlength="140" placeholder="e.g. Best chicken rice, go before noon"></textarea>
+    </div>
+    <div class="row">
+      <button class="cancel" id="formCancel">Cancel</button>
+      <button class="save" id="formSave" data-cat="food">Save pin</button>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+<script>
+(function(){
+  "use strict";
+
+  var SG_CENTER = [1.3521, 103.8198];
+  var SG_BOUNDS = L.latLngBounds([1.13, 103.55], [1.48, 104.13]);
+
+  var map = L.map('map', {
+    center: SG_CENTER,
+    zoom: 12,
+    minZoom: 10,
+    maxZoom: 19,
+    maxBounds: SG_BOUNDS.pad(0.15),
+    maxBoundsViscosity: 0.6,
+    zoomControl: false
+  });
+  L.control.zoom({ position: 'bottomright' }).addTo(map);
+  // OneMap (Singapore Land Authority) - Singapore's official national map.
+  // Free, no API key needed for the base tiles or search.
+  L.tileLayer('https://www.onemap.gov.sg/maps/tiles/Default/{z}/{x}/{y}.png', {
+    attribution: '<a href="https://www.onemap.gov.sg" target="_blank" rel="noopener">OneMap</a> &copy; <a href="https://www.sla.gov.sg" target="_blank" rel="noopener">Singapore Land Authority</a>',
+    maxZoom: 19
+  }).addTo(map);
+
+  var pinsLayer = L.layerGroup().addTo(map);
+  var searchMarker = null;
+
+  // ---- pin icon ----
+  function pinSvg(cls){
+    return '<div class="pinicon '+cls+'">'+
+      '<svg width="30" height="40" viewBox="0 0 24 32">'+
+        '<path class="body" d="M12 0C5.4 0 0 5.5 0 12.3 0 21.6 12 32 12 32s12-10.4 12-19.7C24 5.5 18.6 0 12 0z"/>'+
+        '<circle class="core" cx="12" cy="12.3" r="4.6"/>'+
+      '</svg></div>';
+  }
+  function makeIcon(cat){
+    return L.divIcon({
+      html: pinSvg(cat),
+      className: '',
+      iconSize: [30,40],
+      iconAnchor: [15,38],
+      popupAnchor: [0,-34]
+    });
+  }
+  var iconFood = makeIcon('food');
+  var iconPlace = makeIcon('place');
+  var iconSearch = L.divIcon({
+    html: pinSvg('searchmarker'),
+    className: '', iconSize:[30,40], iconAnchor:[15,38], popupAnchor:[0,-34]
+  });
+
+  // ---- storage ----
+  var STORE_KEY = 'sg-little-red-dots-leaflet-v1';
+  var points = loadPoints();
+  function loadPoints(){
+    try { var raw = localStorage.getItem(STORE_KEY); return raw ? JSON.parse(raw) : []; }
+    catch(e){ return []; }
+  }
+  function savePoints(){
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(points)); } catch(e){}
+  }
+  function genId(){ return 'p'+Date.now().toString(36)+Math.random().toString(36).slice(2,8); }
+
+  var filter = 'all';
+  var markerById = {};
+
+  function visiblePoints(){
+    return filter==='all' ? points : points.filter(function(p){ return p.category===filter; });
+  }
+
+  function renderPins(){
+    pinsLayer.clearLayers();
+    markerById = {};
+    visiblePoints().forEach(function(p){
+      var m = L.marker([p.lat,p.lng], { icon: p.category==='food'?iconFood:iconPlace });
+      m.bindPopup(popupHtml(p), { minWidth: 210, maxWidth: 240 });
+      m.on('popupopen', function(e){ bindPopupActions(e.popup, p); });
+      m.addTo(pinsLayer);
+      markerById[p.id] = m;
+    });
+  }
+
+  // Google Maps resolves a text destination (name + address) to the actual
+  // place listing - reviews, exact entrance, business hours and all - which
+  // is what "open directions to Hvala Somerset" should mean. A bare lat/lng
+  // only drops a pin at that spot with no name, so we fall back to
+  // coordinates only when we truly have nothing else to go on.
+  function directionsUrl(name, addr, lat, lng){
+    var query = name ? (name + ', ' + (addr || 'Singapore')) : (lat + ',' + lng);
+    return 'https://www.google.com/maps/dir/?api=1&destination=' + encodeURIComponent(query);
+  }
+  function popupHtml(p){
+    var catLabel = p.category==='food' ? 'Food' : 'Place';
+    return '<div class="popcat '+p.category+'">'+catLabel+'</div>'+
+      '<div class="poptitle"></div>'+
+      '<div class="popnote"></div>'+
+      '<div class="poprow">'+
+        '<a class="popbtn" target="_blank" rel="noopener" data-action="directions">Directions</a>'+
+        '<button class="popbtn danger" data-action="delete">Delete</button>'+
+      '</div>';
+  }
+  function bindPopupActions(popup, p){
+    var el = popup.getElement();
+    if (!el) return;
+    var title = el.querySelector('.poptitle'); if (title) title.textContent = p.name;
+    var note = el.querySelector('.popnote'); if (note) note.textContent = p.note || '';
+    var dirBtn = el.querySelector('[data-action="directions"]');
+    if (dirBtn) dirBtn.href = directionsUrl(p.name, p.addr, p.lat, p.lng);
+    var delBtn = el.querySelector('[data-action="delete"]');
+    if (delBtn) delBtn.addEventListener('click', function(){ removePoint(p.id); map.closePopup(); });
+  }
+
+  function makePinRow(p){
+    var li = document.createElement('li');
+    var row = document.createElement('button');
+    row.type = 'button';
+    row.className = 'pinrow ' + (p.category==='food' ? 'food-row' : 'place-row');
+    row.innerHTML = '<span class="dot"></span><span class="meta"><div class="name"></div><div class="note"></div></span><span class="del" title="Delete">&times;</span>';
+    row.querySelector('.name').textContent = p.name;
+    row.querySelector('.note').textContent = p.note || '';
+    row.addEventListener('click', function(ev){
+      if (ev.target.classList.contains('del')){ ev.stopPropagation(); removePoint(p.id); return; }
+      closeDrawer();
+      map.flyTo([p.lat,p.lng], Math.max(map.getZoom(),16), { duration:.5 });
+      setTimeout(function(){ var m = markerById[p.id]; if (m) m.openPopup(); }, 500);
+    });
+    li.appendChild(row);
+    return li;
+  }
+  function makeSectionHead(cat, count){
+    var li = document.createElement('li');
+    li.className = 'sectionhead ' + cat;
+    li.innerHTML = '<span class="swatch"></span><span class="label"></span>';
+    li.querySelector('.label').textContent = (cat==='food' ? 'Food pins' : 'Place pins') + ' · ' + count;
+    return li;
+  }
+
+  function renderList(){
+    var listEl = document.getElementById('pinList');
+    var emptyEl = document.getElementById('emptyState');
+    var foodTotal = points.filter(function(p){ return p.category==='food'; }).length;
+    var placeTotal = points.length - foodTotal;
+    document.getElementById('foodCountBadge').textContent = foodTotal;
+    document.getElementById('placeCountBadge').textContent = placeTotal;
+    listEl.innerHTML = '';
+    if (points.length===0){ emptyEl.hidden = false; return; }
+    emptyEl.hidden = true;
+    var byNewest = function(a,b){ return (b.createdAt||0)-(a.createdAt||0); };
+    var foodList = visiblePoints().filter(function(p){ return p.category==='food'; }).sort(byNewest);
+    var placeList = visiblePoints().filter(function(p){ return p.category==='place'; }).sort(byNewest);
+
+    // Only split into labelled sections when both categories are showing;
+    // a single-category filter is already unambiguous without a header.
+    var showHeaders = filter === 'all' && foodList.length>0 && placeList.length>0;
+
+    if (foodList.length>0){
+      if (showHeaders) listEl.appendChild(makeSectionHead('food', foodList.length));
+      foodList.forEach(function(p){ listEl.appendChild(makePinRow(p)); });
+    }
+    if (placeList.length>0){
+      if (showHeaders) listEl.appendChild(makeSectionHead('place', placeList.length));
+      placeList.forEach(function(p){ listEl.appendChild(makePinRow(p)); });
+    }
+  }
+
+  function render(){ renderPins(); renderList(); }
+
+  function addPoint(data){
+    var p = Object.assign({ id: genId(), createdAt: Date.now() }, data);
+    points.push(p);
+    savePoints();
+    render();
+    showToast('Pin saved');
+  }
+  function removePoint(id){
+    points = points.filter(function(p){ return p.id!==id; });
+    savePoints();
+    render();
+  }
+
+  // ---- filters ----
+  function setFilter(f){
+    filter = f;
+    document.querySelectorAll('.chip').forEach(function(x){ x.setAttribute('aria-pressed', x.dataset.filter===f ? 'true':'false'); });
+    document.getElementById('foodPinsBtn').setAttribute('aria-pressed', f==='food' ? 'true':'false');
+    document.getElementById('placePinsBtn').setAttribute('aria-pressed', f==='place' ? 'true':'false');
+    render();
+  }
+  document.querySelectorAll('.chip').forEach(function(c){
+    c.addEventListener('click', function(){ setFilter(c.dataset.filter); });
+  });
+
+  // ---- drawer ----
+  var drawer = document.getElementById('drawer');
+  var scrim = document.getElementById('scrim');
+  function openDrawer(){ drawer.classList.add('open'); scrim.hidden = false; }
+  function closeDrawer(){ drawer.classList.remove('open'); scrim.hidden = true; }
+  // Tapping a category button shows only that color's pins on the map (and
+  // opens the drawer to that list); tapping the same one again goes back to
+  // showing both colors again.
+  document.getElementById('foodPinsBtn').addEventListener('click', function(){
+    if (filter==='food'){ setFilter('all'); } else { setFilter('food'); openDrawer(); }
+  });
+  document.getElementById('placePinsBtn').addEventListener('click', function(){
+    if (filter==='place'){ setFilter('all'); } else { setFilter('place'); openDrawer(); }
+  });
+  // Keep the scrim/drawer starting exactly below the topbar, whatever height
+  // it wraps to (mobile stacks the search bar onto its own row).
+  function syncTopbarHeight(){
+    document.documentElement.style.setProperty('--topbar-h', document.getElementById('topbar').offsetHeight + 'px');
+  }
+  syncTopbarHeight();
+  window.addEventListener('resize', syncTopbarHeight);
+  document.getElementById('drawerClose').addEventListener('click', closeDrawer);
+  scrim.addEventListener('click', function(){ closeDrawer(); closeForm(); });
+
+  // ---- export / import ----
+  document.getElementById('exportBtn').addEventListener('click', function(){
+    var blob = new Blob([JSON.stringify(points, null, 2)], { type: 'application/json' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url; a.download = 'little-red-dots-pins.json';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(function(){ URL.revokeObjectURL(url); }, 2000);
+    showToast('Exported '+points.length+' pin'+(points.length===1?'':'s'));
+  });
+  document.getElementById('importBtn').addEventListener('click', function(){
+    document.getElementById('importFile').click();
+  });
+  document.getElementById('importFile').addEventListener('change', function(e){
+    var file = e.target.files[0];
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function(){
+      try {
+        var incoming = JSON.parse(reader.result);
+        if (!Array.isArray(incoming)) throw new Error('bad format');
+        var existingIds = {}; points.forEach(function(p){ existingIds[p.id]=true; });
+        var added = 0;
+        incoming.forEach(function(p){
+          if (p && p.name && typeof p.lat==='number' && typeof p.lng==='number' && !existingIds[p.id]){
+            points.push({ id: p.id || genId(), name:String(p.name).slice(0,60), note:String(p.note||'').slice(0,140),
+              addr:String(p.addr||'').slice(0,140),
+              category: p.category==='place'?'place':'food', lat:p.lat, lng:p.lng, createdAt:p.createdAt||Date.now() });
+            added++;
+          }
+        });
+        savePoints(); render();
+        showToast('Imported '+added+' pin'+(added===1?'':'s'));
+      } catch(err){ showToast('Could not read that file'); }
+      e.target.value = '';
+    };
+    reader.readAsText(file);
+  });
+
+  // ---- toast ----
+  var toastTimer = null;
+  function showToast(msg){
+    var t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function(){ t.classList.remove('show'); }, 2200);
+  }
+
+  // ---- add-pin flow ----
+  var addBtn = document.getElementById('addBtn');
+  var mapEl = document.getElementById('map');
+  var formSheet = document.getElementById('formSheet');
+  var placing = false;
+  var pendingCoord = null;
+  var pendingCat = 'food';
+  var pendingAddr = '';
+
+  function setPlacing(on){
+    placing = on;
+    addBtn.setAttribute('aria-pressed', on?'true':'false');
+    addBtn.querySelector('.label').textContent = on ? 'Cancel' : '+ Add a pin';
+    mapEl.classList.toggle('placing', on);
+  }
+  addBtn.addEventListener('click', function(){ setPlacing(!placing); });
+
+  map.on('click', function(e){
+    if (!placing) return;
+    pendingCoord = e.latlng;
+    openForm('Add a pin', null, '');
+  });
+
+  function setPendingCat(cat){
+    pendingCat = cat;
+    document.querySelectorAll('.cat-btn').forEach(function(b){ b.setAttribute('aria-pressed', b.dataset.cat===cat?'true':'false'); });
+    document.getElementById('formSave').dataset.cat = cat;
+  }
+  document.querySelectorAll('.cat-btn').forEach(function(b){
+    b.addEventListener('click', function(){ setPendingCat(b.dataset.cat); });
+  });
+
+  function openForm(title, prefillName, addr){
+    pendingAddr = addr || '';
+    document.getElementById('formTitle').textContent = title;
+    document.getElementById('formCoord').textContent = pendingCoord.lat.toFixed(5)+', '+pendingCoord.lng.toFixed(5);
+    document.getElementById('pinName').value = prefillName || '';
+    document.getElementById('pinNote').value = '';
+    setPendingCat('food');
+    formSheet.hidden = false;
+    scrim.hidden = false;
+    setTimeout(function(){ document.getElementById('pinName').focus(); }, 50);
+  }
+  function closeForm(){
+    formSheet.hidden = true;
+    if (!drawer.classList.contains('open')) scrim.hidden = true;
+    setPlacing(false);
+    pendingCoord = null;
+    pendingAddr = '';
+  }
+  document.getElementById('formCancel').addEventListener('click', closeForm);
+  document.getElementById('formSave').addEventListener('click', function(){
+    var name = document.getElementById('pinName').value.trim();
+    if (!name || !pendingCoord){ document.getElementById('pinName').focus(); return; }
+    var note = document.getElementById('pinNote').value.trim();
+    addPoint({ name:name, note:note, addr:pendingAddr, category:pendingCat, lat:pendingCoord.lat, lng:pendingCoord.lng });
+    closeForm();
+  });
+  document.addEventListener('keydown', function(e){
+    if (e.key==='Escape'){
+      if (!formSheet.hidden) closeForm();
+      else if (drawer.classList.contains('open')) closeDrawer();
+      else if (placing) setPlacing(false);
+    }
+  });
+
+  // ---- search (Nominatim, Singapore-bounded) ----
+  var searchInput = document.getElementById('searchInput');
+  var resultsEl = document.getElementById('results');
+  var searchClear = document.getElementById('searchClear');
+  var searchTimer = null;
+  var searchAbort = null;
+
+  function showResults(html){ resultsEl.innerHTML = html; resultsEl.hidden = false; }
+  function hideResults(){ resultsEl.hidden = true; }
+
+  searchInput.addEventListener('input', function(){
+    var q = searchInput.value.trim();
+    searchClear.classList.toggle('show', q.length>0);
+    clearTimeout(searchTimer);
+    if (q.length < 2){ hideResults(); return; }
+    searchTimer = setTimeout(function(){ runSearch(q); }, 450);
+  });
+  searchClear.addEventListener('click', function(){
+    searchInput.value=''; searchClear.classList.remove('show'); hideResults(); searchInput.focus();
+  });
+  document.addEventListener('click', function(e){
+    if (!e.target.closest('.searchwrap')) hideResults();
+  });
+
+  // OneMap's search is SLA's official address/building directory - great for
+  // roads, HDB blocks and postal codes, but it does not index individual shop
+  // or cafe names. OpenStreetMap (via Nominatim) is community-mapped and often
+  // *does* have small businesses by name, so we search both and combine them.
+  function searchOneMap(q, signal){
+    var url = 'https://www.onemap.gov.sg/api/common/elastic/search?searchVal='
+      + encodeURIComponent(q) + '&returnGeom=Y&getAddrDetails=Y&pageNum=1';
+    return fetch(url, { signal: signal, headers: { 'Accept':'application/json' } })
+      .then(function(r){ if(!r.ok) throw new Error('bad response'); return r.json(); })
+      .then(function(data){
+        return ((data && data.results) || []).map(function(r){
+          var name = r.BUILDING && r.BUILDING !== 'NIL' ? r.BUILDING : (r.ROAD_NAME || r.ADDRESS || q);
+          var sub = [r.BLK_NO && r.BLK_NO!=='NIL' ? r.BLK_NO : null, r.ROAD_NAME, r.POSTAL && r.POSTAL!=='NIL' ? 'S'+r.POSTAL : null]
+            .filter(Boolean).join(' ');
+          return { name:name, sub:sub, lat:parseFloat(r.LATITUDE), lng:parseFloat(r.LONGITUDE), group:'Addresses & buildings' };
+        });
+      });
+  }
+  function searchOsmPlaces(q, signal){
+    var url = 'https://nominatim.openstreetmap.org/search?format=jsonv2&limit=6&countrycodes=sg'
+      + '&viewbox=103.55,1.48,104.13,1.13&bounded=1&q=' + encodeURIComponent(q);
+    return fetch(url, { signal: signal, headers: { 'Accept':'application/json' } })
+      .then(function(r){ if(!r.ok) throw new Error('bad response'); return r.json(); })
+      .then(function(list){
+        return (list||[]).map(function(r){
+          var parts = (r.display_name||'').split(',');
+          return { name:(parts[0]||q).trim(), sub:parts.slice(1,3).join(',').trim(), lat:parseFloat(r.lat), lng:parseFloat(r.lon), group:'Places' };
+        });
+      });
+  }
+
+  function runSearch(q){
+    if (searchAbort) searchAbort.abort();
+    searchAbort = new AbortController();
+    var signal = searchAbort.signal;
+    showResults('<div class="rmsg">Searching&hellip;</div>');
+    Promise.allSettled([ searchOsmPlaces(q, signal), searchOneMap(q, signal) ])
+      .then(function(outcomes){
+        if (signal.aborted) return;
+        var places = outcomes[0].status==='fulfilled' ? outcomes[0].value : [];
+        var addresses = outcomes[1].status==='fulfilled' ? outcomes[1].value : [];
+        var bothFailed = outcomes[0].status!=='fulfilled' && outcomes[1].status!=='fulfilled';
+        if (bothFailed){
+          showResults('<div class="rmsg">Search needs an internet connection.</div>');
+          return;
+        }
+        // De-dupe: skip an address hit that's essentially the same spot/name as a place hit already listed.
+        function isDupe(a, list){
+          return list.some(function(b){
+            return Math.abs(a.lat-b.lat) < 0.0006 && Math.abs(a.lng-b.lng) < 0.0006;
+          });
+        }
+        var combined = places.slice(0, 6);
+        addresses.forEach(function(a){ if (combined.length < 10 && !isDupe(a, combined)) combined.push(a); });
+
+        if (combined.length===0){
+          showResults('<div class="rmsg">No matches in Singapore for &ldquo;'+escapeHtml(q)+'&rdquo;</div>');
+          return;
+        }
+        var lastGroup = null;
+        var html = combined.map(function(r, i){
+          var groupHtml = '';
+          if (r.group !== lastGroup){ groupHtml = '<div class="rsection">'+r.group+'</div>'; lastGroup = r.group; }
+          return groupHtml + '<button data-i="'+i+'"><span class="rname"></span><span class="rtype"></span></button>';
+        }).join('');
+        showResults(html);
+        resultsEl.querySelectorAll('button').forEach(function(btn, i){
+          var r = combined[i];
+          btn.querySelector('.rname').textContent = r.name;
+          btn.querySelector('.rtype').textContent = r.sub;
+          btn.addEventListener('click', function(){
+            hideResults();
+            searchInput.value = r.name;
+            placeSearchMarker(r.lat, r.lng, r.name, r.sub);
+            map.flyTo([r.lat,r.lng], 17, { duration:.6 });
+          });
+        });
+      });
+  }
+  function escapeHtml(s){ return s.replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+
+  function placeSearchMarker(lat, lng, name, addr){
+    if (searchMarker) map.removeLayer(searchMarker);
+    searchMarker = L.marker([lat,lng], { icon: iconSearch }).addTo(map);
+    var popupDiv = document.createElement('div');
+    popupDiv.innerHTML = '<div class="poptitle"></div>'+
+      '<div class="poprow">'+
+        '<button class="popbtn" data-action="save">+ Save as pin</button>'+
+        '<a class="popbtn" target="_blank" rel="noopener" href="'+directionsUrl(name, addr, lat, lng)+'">Directions</a>'+
+      '</div>';
+    popupDiv.querySelector('.poptitle').textContent = name;
+    // Attach the handler directly (before opening) — a popupopen listener added
+    // after openPopup() would miss the event that already fired synchronously.
+    popupDiv.querySelector('[data-action="save"]').addEventListener('click', function(){
+      map.closePopup();
+      pendingCoord = { lat:lat, lng:lng };
+      openForm('Save this place', name, addr);
+    });
+    searchMarker.bindPopup(popupDiv, { minWidth: 190 }).openPopup();
+  }
+
+  // ---- locate me ----
+  document.getElementById('locateBtn').addEventListener('click', function(){
+    if (!navigator.geolocation){ showToast('Location is not available on this device'); return; }
+    showToast('Finding your location&hellip;');
+    navigator.geolocation.getCurrentPosition(function(pos){
+      var lat = pos.coords.latitude, lng = pos.coords.longitude;
+      map.flyTo([lat,lng], 16, { duration:.6 });
+      L.circleMarker([lat,lng], { radius:7, color:'#7C4DFF', weight:2, fillColor:'#7C4DFF', fillOpacity:.9 }).addTo(map);
+    }, function(){ showToast('Could not get your location'); }, { enableHighAccuracy:true, timeout:8000 });
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>
