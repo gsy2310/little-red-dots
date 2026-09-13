@@ -190,6 +190,8 @@
   .pinrow .meta{min-width:0;flex:1;}
   .pinrow .name{font-weight:600;font-size:.92rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .pinrow .note{color:var(--ink-dim);font-size:.8rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .pinrow .edit{flex:none;border:none;background:none;color:var(--ink-faint);font-size:.9rem;cursor:pointer;padding:2px 6px;border-radius:6px;}
+  .pinrow .edit:hover{color:var(--place);background:var(--place-bg);}
   .pinrow .del{flex:none;border:none;background:none;color:var(--ink-faint);font-size:1rem;cursor:pointer;padding:2px 6px;border-radius:6px;}
   .pinrow .del:hover{color:var(--food);background:var(--food-bg);}
   .empty-state{padding:32px 20px;text-align:center;color:var(--ink-dim);font-size:.86rem;}
@@ -473,6 +475,7 @@
       '<div class="popnote"></div>'+
       '<div class="poprow">'+
         '<a class="popbtn" target="_blank" rel="noopener" data-action="directions">Directions</a>'+
+        '<button class="popbtn" data-action="edit">Edit</button>'+
         '<button class="popbtn danger" data-action="delete">Delete</button>'+
       '</div>';
   }
@@ -483,6 +486,8 @@
     var note = el.querySelector('.popnote'); if (note) note.textContent = p.note || '';
     var dirBtn = el.querySelector('[data-action="directions"]');
     if (dirBtn) dirBtn.href = directionsUrl(p.name, p.addr, p.lat, p.lng);
+    var editBtn = el.querySelector('[data-action="edit"]');
+    if (editBtn) editBtn.addEventListener('click', function(){ map.closePopup(); openEditForm(p); });
     var delBtn = el.querySelector('[data-action="delete"]');
     if (delBtn) delBtn.addEventListener('click', function(){ removePoint(p.id); map.closePopup(); });
   }
@@ -492,11 +497,12 @@
     var row = document.createElement('button');
     row.type = 'button';
     row.className = 'pinrow ' + (p.category==='food' ? 'food-row' : 'place-row');
-    row.innerHTML = '<span class="dot"></span><span class="meta"><div class="name"></div><div class="note"></div></span><span class="del" title="Delete">&times;</span>';
+    row.innerHTML = '<span class="dot"></span><span class="meta"><div class="name"></div><div class="note"></div></span><span class="edit" title="Edit">&#9998;</span><span class="del" title="Delete">&times;</span>';
     row.querySelector('.name').textContent = p.name;
     row.querySelector('.note').textContent = p.note || '';
     row.addEventListener('click', function(ev){
       if (ev.target.classList.contains('del')){ ev.stopPropagation(); removePoint(p.id); return; }
+      if (ev.target.classList.contains('edit')){ ev.stopPropagation(); openEditForm(p); return; }
       closeDrawer();
       map.flyTo([p.lat,p.lng], Math.max(map.getZoom(),16), { duration:.5 });
       setTimeout(function(){ var m = markerById[p.id]; if (m) m.openPopup(); }, 500);
@@ -563,6 +569,16 @@
       cachePoints();
       render();
     }
+  }
+  function updatePoint(id, data){
+    if (pinsCollection){
+      pinsCollection.doc(id).update(data).catch(function(){ showToast('Could not save changes - check your connection'); });
+    } else {
+      points = points.map(function(p){ return p.id===id ? Object.assign({}, p, data) : p; });
+      cachePoints();
+      render();
+    }
+    showToast('Pin updated');
   }
 
   // ---- filters ----
@@ -671,6 +687,7 @@
   var pendingCoord = null;
   var pendingCat = 'food';
   var pendingAddr = '';
+  var pendingEditId = null; // null = creating a new pin; set = editing this pin's id
 
   function setPlacing(on){
     placing = on;
@@ -682,8 +699,7 @@
 
   map.on('click', function(e){
     if (!placing) return;
-    pendingCoord = e.latlng;
-    openForm('Add a pin', null, '');
+    openForm({ title:'Add a pin', coord:e.latlng });
   });
 
   function setPendingCat(cat){
@@ -695,16 +711,25 @@
     b.addEventListener('click', function(){ setPendingCat(b.dataset.cat); });
   });
 
-  function openForm(title, prefillName, addr){
-    pendingAddr = addr || '';
-    document.getElementById('formTitle').textContent = title;
+  // opts: { title, coord, name, note, addr, category, editId }
+  // Used both to add a brand-new pin and to edit an existing one - editId
+  // set means "Save" updates that pin in place instead of creating a new one.
+  function openForm(opts){
+    pendingEditId = opts.editId || null;
+    pendingCoord = opts.coord;
+    pendingAddr = opts.addr || '';
+    document.getElementById('formTitle').textContent = opts.title;
     document.getElementById('formCoord').textContent = pendingCoord.lat.toFixed(5)+', '+pendingCoord.lng.toFixed(5);
-    document.getElementById('pinName').value = prefillName || '';
-    document.getElementById('pinNote').value = '';
-    setPendingCat('food');
+    document.getElementById('pinName').value = opts.name || '';
+    document.getElementById('pinNote').value = opts.note || '';
+    setPendingCat(opts.category || 'food');
+    document.getElementById('formSave').textContent = pendingEditId ? 'Save changes' : 'Save pin';
     formSheet.hidden = false;
     scrim.hidden = false;
     setTimeout(function(){ document.getElementById('pinName').focus(); }, 50);
+  }
+  function openEditForm(p){
+    openForm({ title:'Edit pin', name:p.name, note:p.note, addr:p.addr, category:p.category, coord:{ lat:p.lat, lng:p.lng }, editId:p.id });
   }
   function closeForm(){
     formSheet.hidden = true;
@@ -712,13 +737,18 @@
     setPlacing(false);
     pendingCoord = null;
     pendingAddr = '';
+    pendingEditId = null;
   }
   document.getElementById('formCancel').addEventListener('click', closeForm);
   document.getElementById('formSave').addEventListener('click', function(){
     var name = document.getElementById('pinName').value.trim();
     if (!name || !pendingCoord){ document.getElementById('pinName').focus(); return; }
     var note = document.getElementById('pinNote').value.trim();
-    addPoint({ name:name, note:note, addr:pendingAddr, category:pendingCat, lat:pendingCoord.lat, lng:pendingCoord.lng });
+    if (pendingEditId){
+      updatePoint(pendingEditId, { name:name, note:note, addr:pendingAddr, category:pendingCat });
+    } else {
+      addPoint({ name:name, note:note, addr:pendingAddr, category:pendingCat, lat:pendingCoord.lat, lng:pendingCoord.lng });
+    }
     closeForm();
   });
   document.addEventListener('keydown', function(e){
@@ -848,8 +878,7 @@
     // after openPopup() would miss the event that already fired synchronously.
     popupDiv.querySelector('[data-action="save"]').addEventListener('click', function(){
       map.closePopup();
-      pendingCoord = { lat:lat, lng:lng };
-      openForm('Save this place', name, addr);
+      openForm({ title:'Save this place', name:name, addr:addr, coord:{ lat:lat, lng:lng } });
     });
     searchMarker.bindPopup(popupDiv, { minWidth: 190 }).openPopup();
   }
