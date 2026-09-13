@@ -965,6 +965,13 @@
       updatePoint(pendingEditId, { name:name, note:note, addr:pendingAddr, category:pendingCat, rating:pendingRating });
     } else {
       addPoint({ name:name, note:note, addr:pendingAddr, category:pendingCat, rating:pendingRating, lat:pendingCoord.lat, lng:pendingCoord.lng, addedBy:myName });
+      // This place is now a real pin, so clear the search box/results and
+      // drop the temporary search marker - otherwise the searched name sits
+      // in the search bar and a leftover marker overlaps the new pin.
+      searchInput.value = '';
+      searchClear.classList.remove('show');
+      hideResults();
+      if (searchMarker){ map.removeLayer(searchMarker); searchMarker = null; }
     }
     closeForm();
   });
