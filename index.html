@@ -9,6 +9,11 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<!-- Shared family pin storage: every pin lives in Cloud Firestore instead of
+     this device's own storage, so anyone with the link sees the same pins,
+     live, as soon as they're saved. -->
+<script src="https://www.gstatic.com/firebasejs/12.19.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore-compat.js"></script>
 <style>
   :root{
     --ground:#F7F1E3;
@@ -300,7 +305,7 @@
       <div class="big">&#128205;</div>
       <div>No pins yet.<br>Search a place or tap <strong>+ Add a pin</strong>, then tap the map.</div>
     </div>
-    <div class="drawer-foot"><span class="dot2"></span>Saved on this device &ndash; use Export / Import to move pins to your phone</div>
+    <div class="drawer-foot"><span class="dot2"></span><span id="syncStatus">Connecting&hellip;</span></div>
   </div>
 
   <div class="formsheet" id="formSheet" hidden>
@@ -378,16 +383,60 @@
   });
 
   // ---- storage ----
+  // Pins live in Cloud Firestore (shared by everyone with the link) so the
+  // whole family sees the same map update live. A localStorage copy is kept
+  // purely as an instant-paint / offline cache - Firestore is always the
+  // source of truth once it connects.
   var STORE_KEY = 'sg-little-red-dots-leaflet-v1';
-  var points = loadPoints();
-  function loadPoints(){
+  var points = loadCachedPoints();
+  var pinsCollection = null; // set once Firebase connects; null = offline/local-only
+  function loadCachedPoints(){
     try { var raw = localStorage.getItem(STORE_KEY); return raw ? JSON.parse(raw) : []; }
     catch(e){ return []; }
   }
-  function savePoints(){
+  function cachePoints(){
     try { localStorage.setItem(STORE_KEY, JSON.stringify(points)); } catch(e){}
   }
   function genId(){ return 'p'+Date.now().toString(36)+Math.random().toString(36).slice(2,8); }
+
+  function setSyncStatus(msg){
+    var el = document.getElementById('syncStatus');
+    if (el) el.textContent = msg;
+  }
+
+  function initFirebase(){
+    // Replace with your own project's config (Firebase console -> Project
+    // settings -> your web app). Safe to keep visible in the page source -
+    // Firestore's own security rules are what control access, not secrecy
+    // of this config.
+    var firebaseConfig = {
+      apiKey: "AIzaSyD1BpWJYxzE952kLlIyz9hGfbhEUIWxblw",
+      authDomain: "little-reddot.firebaseapp.com",
+      projectId: "little-reddot",
+      storageBucket: "little-reddot.firebasestorage.app",
+      messagingSenderId: "465653199029",
+      appId: "1:465653199029:web:c1a7a5f716af5df23bcefc"
+    };
+    if (!window.firebase || firebaseConfig.apiKey === 'REPLACE_ME'){
+      setSyncStatus('Not connected – showing pins saved on this device only');
+      return;
+    }
+    try {
+      firebase.initializeApp(firebaseConfig);
+      pinsCollection = firebase.firestore().collection('pins');
+      setSyncStatus('Connecting…');
+      pinsCollection.orderBy('createdAt', 'desc').onSnapshot(function(snap){
+        points = snap.docs.map(function(d){ return Object.assign({ id: d.id }, d.data()); });
+        cachePoints();
+        render();
+        setSyncStatus('Synced live with your family');
+      }, function(err){
+        setSyncStatus('Offline – showing last saved pins');
+      });
+    } catch(e){
+      setSyncStatus('Not connected – showing pins saved on this device only');
+    }
+  }
 
   var filter = 'all';
   var markerById = {};
@@ -494,16 +543,26 @@
   function render(){ renderPins(); renderList(); }
 
   function addPoint(data){
-    var p = Object.assign({ id: genId(), createdAt: Date.now() }, data);
-    points.push(p);
-    savePoints();
-    render();
+    var body = Object.assign({ createdAt: Date.now() }, data);
+    if (pinsCollection){
+      // The onSnapshot listener above will pick this up (for us and for
+      // everyone else) and re-render - no need to touch `points` here.
+      pinsCollection.add(body).catch(function(){ showToast('Could not save - check your connection'); });
+    } else {
+      points.push(Object.assign({ id: genId() }, body));
+      cachePoints();
+      render();
+    }
     showToast('Pin saved');
   }
   function removePoint(id){
-    points = points.filter(function(p){ return p.id!==id; });
-    savePoints();
-    render();
+    if (pinsCollection){
+      pinsCollection.doc(id).delete().catch(function(){ showToast('Could not delete - check your connection'); });
+    } else {
+      points = points.filter(function(p){ return p.id!==id; });
+      cachePoints();
+      render();
+    }
   }
 
   // ---- filters ----
@@ -563,18 +622,31 @@
       try {
         var incoming = JSON.parse(reader.result);
         if (!Array.isArray(incoming)) throw new Error('bad format');
-        var existingIds = {}; points.forEach(function(p){ existingIds[p.id]=true; });
-        var added = 0;
+        // De-dupe against whatever's currently loaded (by name + near-enough
+        // coordinates) so re-importing the same file twice doesn't double up.
+        function isDupe(a){
+          return points.some(function(b){
+            return a.name===b.name && Math.abs(a.lat-b.lat)<0.0006 && Math.abs(a.lng-b.lng)<0.0006;
+          });
+        }
+        var toAdd = [];
         incoming.forEach(function(p){
-          if (p && p.name && typeof p.lat==='number' && typeof p.lng==='number' && !existingIds[p.id]){
-            points.push({ id: p.id || genId(), name:String(p.name).slice(0,60), note:String(p.note||'').slice(0,140),
+          if (p && p.name && typeof p.lat==='number' && typeof p.lng==='number'){
+            var clean = { name:String(p.name).slice(0,60), note:String(p.note||'').slice(0,140),
               addr:String(p.addr||'').slice(0,140),
-              category: p.category==='place'?'place':'food', lat:p.lat, lng:p.lng, createdAt:p.createdAt||Date.now() });
-            added++;
+              category: p.category==='place'?'place':'food', lat:p.lat, lng:p.lng, createdAt:p.createdAt||Date.now() };
+            if (!isDupe(clean)){ toAdd.push(clean); }
           }
         });
-        savePoints(); render();
-        showToast('Imported '+added+' pin'+(added===1?'':'s'));
+        if (pinsCollection){
+          Promise.all(toAdd.map(function(p){ return pinsCollection.add(p); }))
+            .then(function(){ showToast('Imported '+toAdd.length+' pin'+(toAdd.length===1?'':'s')); })
+            .catch(function(){ showToast('Could not import - check your connection'); });
+        } else {
+          toAdd.forEach(function(p){ points.push(Object.assign({ id: genId() }, p)); });
+          cachePoints(); render();
+          showToast('Imported '+toAdd.length+' pin'+(toAdd.length===1?'':'s'));
+        }
       } catch(err){ showToast('Could not read that file'); }
       e.target.value = '';
     };
@@ -794,6 +866,7 @@
   });
 
   render();
+  initFirebase();
 })();
 </script>
 </body>
