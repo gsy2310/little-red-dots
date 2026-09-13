@@ -189,6 +189,7 @@
   .pinrow.place-row .dot{background:var(--place);}
   .pinrow .meta{min-width:0;flex:1;}
   .pinrow .name{font-weight:600;font-size:.92rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .pinrow .stars{color:#F0B429;font-size:.72rem;letter-spacing:1px;}
   .pinrow .note{color:var(--ink-dim);font-size:.8rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .pinrow .edit{flex:none;border:none;background:none;color:var(--ink-faint);font-size:.9rem;cursor:pointer;padding:2px 6px;border-radius:6px;}
   .pinrow .edit:hover{color:var(--place);background:var(--place-bg);}
@@ -226,6 +227,11 @@
   .cat-btn[data-cat="place"] .swatch{background:var(--place);}
   .cat-btn[aria-pressed="true"][data-cat="food"]{background:var(--food-bg);border-color:var(--food);color:var(--food-ink);}
   .cat-btn[aria-pressed="true"][data-cat="place"]{background:var(--place-bg);border-color:var(--place);color:var(--place-ink);}
+  .rating-toggle{display:flex;gap:2px;}
+  .star-btn{border:none;background:none;padding:2px;cursor:pointer;font-size:1.5rem;line-height:1;color:var(--line-2);}
+  .star-btn.filled{color:#F0B429;}
+  .star-btn:focus-visible{outline:2px solid var(--focus);outline-offset:2px;border-radius:4px;}
+  .stars{color:#F0B429;font-size:.72rem;letter-spacing:1px;}
   .field{display:flex;flex-direction:column;gap:5px;margin-bottom:12px;}
   .field label{font-size:.76rem;font-weight:600;color:var(--ink-dim);text-transform:uppercase;letter-spacing:.03em;}
   .field input,.field textarea{font-family:'Inter',sans-serif;border:1px solid var(--line-2);background:var(--ground);color:var(--ink);border-radius:9px;padding:9px 11px;font-size:.92rem;resize:none;}
@@ -316,6 +322,16 @@
     <div class="cat-toggle" role="group" aria-label="Category">
       <button class="cat-btn" data-cat="food" aria-pressed="true"><span class="swatch"></span>Food</button>
       <button class="cat-btn" data-cat="place" aria-pressed="false"><span class="swatch"></span>Place</button>
+    </div>
+    <div class="field">
+      <label>Priority &ndash; who should go first?</label>
+      <div class="rating-toggle" id="ratingToggle" role="group" aria-label="Priority">
+        <button type="button" class="star-btn" data-star="1" aria-label="1 star">&#9733;</button>
+        <button type="button" class="star-btn" data-star="2" aria-label="2 stars">&#9733;</button>
+        <button type="button" class="star-btn" data-star="3" aria-label="3 stars">&#9733;</button>
+        <button type="button" class="star-btn" data-star="4" aria-label="4 stars">&#9733;</button>
+        <button type="button" class="star-btn" data-star="5" aria-label="5 stars">&#9733;</button>
+      </div>
     </div>
     <div class="field">
       <label for="pinName">Name</label>
@@ -468,10 +484,19 @@
     var query = name ? (name + ', ' + (addr || 'Singapore')) : (lat + ',' + lng);
     return 'https://www.google.com/maps/dir/?api=1&destination=' + encodeURIComponent(query);
   }
+  // Filled/empty star glyphs for a 0-5 priority rating - blank string when
+  // unrated so older pins (saved before this feature existed) show nothing.
+  function starString(n){
+    if (!n) return '';
+    var s = '';
+    for (var i=1; i<=5; i++){ s += i<=n ? '★' : '☆'; }
+    return s;
+  }
   function popupHtml(p){
     var catLabel = p.category==='food' ? 'Food' : 'Place';
     return '<div class="popcat '+p.category+'">'+catLabel+'</div>'+
       '<div class="poptitle"></div>'+
+      '<div class="stars"></div>'+
       '<div class="popnote"></div>'+
       '<div class="poprow">'+
         '<a class="popbtn" target="_blank" rel="noopener" data-action="directions">Directions</a>'+
@@ -483,6 +508,7 @@
     var el = popup.getElement();
     if (!el) return;
     var title = el.querySelector('.poptitle'); if (title) title.textContent = p.name;
+    var stars = el.querySelector('.stars'); if (stars) stars.textContent = starString(p.rating);
     var note = el.querySelector('.popnote'); if (note) note.textContent = p.note || '';
     var dirBtn = el.querySelector('[data-action="directions"]');
     if (dirBtn) dirBtn.href = directionsUrl(p.name, p.addr, p.lat, p.lng);
@@ -497,8 +523,9 @@
     var row = document.createElement('button');
     row.type = 'button';
     row.className = 'pinrow ' + (p.category==='food' ? 'food-row' : 'place-row');
-    row.innerHTML = '<span class="dot"></span><span class="meta"><div class="name"></div><div class="note"></div></span><span class="edit" title="Edit">&#9998;</span><span class="del" title="Delete">&times;</span>';
+    row.innerHTML = '<span class="dot"></span><span class="meta"><div class="name"></div><div class="stars"></div><div class="note"></div></span><span class="edit" title="Edit">&#9998;</span><span class="del" title="Delete">&times;</span>';
     row.querySelector('.name').textContent = p.name;
+    row.querySelector('.stars').textContent = starString(p.rating);
     row.querySelector('.note').textContent = p.note || '';
     row.addEventListener('click', function(ev){
       if (ev.target.classList.contains('del')){ ev.stopPropagation(); removePoint(p.id); return; }
@@ -528,9 +555,14 @@
     listEl.innerHTML = '';
     if (points.length===0){ emptyEl.hidden = false; return; }
     emptyEl.hidden = true;
-    var byNewest = function(a,b){ return (b.createdAt||0)-(a.createdAt||0); };
-    var foodList = visiblePoints().filter(function(p){ return p.category==='food'; }).sort(byNewest);
-    var placeList = visiblePoints().filter(function(p){ return p.category==='place'; }).sort(byNewest);
+    // Higher priority (more stars) first, so family knows which to visit
+    // first; unrated/equal-priority pins fall back to newest first.
+    var byPriority = function(a,b){
+      var r = (b.rating||0) - (a.rating||0);
+      return r !== 0 ? r : (b.createdAt||0)-(a.createdAt||0);
+    };
+    var foodList = visiblePoints().filter(function(p){ return p.category==='food'; }).sort(byPriority);
+    var placeList = visiblePoints().filter(function(p){ return p.category==='place'; }).sort(byPriority);
 
     // Only split into labelled sections when both categories are showing;
     // a single-category filter is already unambiguous without a header.
@@ -648,8 +680,9 @@
         var toAdd = [];
         incoming.forEach(function(p){
           if (p && p.name && typeof p.lat==='number' && typeof p.lng==='number'){
+            var cleanRating = (typeof p.rating==='number' && p.rating>=0 && p.rating<=5) ? Math.round(p.rating) : 0;
             var clean = { name:String(p.name).slice(0,60), note:String(p.note||'').slice(0,140),
-              addr:String(p.addr||'').slice(0,140),
+              addr:String(p.addr||'').slice(0,140), rating:cleanRating,
               category: p.category==='place'?'place':'food', lat:p.lat, lng:p.lng, createdAt:p.createdAt||Date.now() };
             if (!isDupe(clean)){ toAdd.push(clean); }
           }
@@ -688,6 +721,7 @@
   var pendingCat = 'food';
   var pendingAddr = '';
   var pendingEditId = null; // null = creating a new pin; set = editing this pin's id
+  var pendingRating = 0; // 0 = unrated, 1-5 stars of "go here first" priority
 
   function setPlacing(on){
     placing = on;
@@ -711,7 +745,22 @@
     b.addEventListener('click', function(){ setPendingCat(b.dataset.cat); });
   });
 
-  // opts: { title, coord, name, note, addr, category, editId }
+  // Tap a star to set that priority; tap the already-highest star again to
+  // clear back to unrated - a quick way to say "we should go here first".
+  function setPendingRating(n){
+    pendingRating = n;
+    document.querySelectorAll('.star-btn').forEach(function(b){
+      b.classList.toggle('filled', parseInt(b.dataset.star, 10) <= n);
+    });
+  }
+  document.querySelectorAll('.star-btn').forEach(function(b){
+    b.addEventListener('click', function(){
+      var n = parseInt(b.dataset.star, 10);
+      setPendingRating(n === pendingRating ? 0 : n);
+    });
+  });
+
+  // opts: { title, coord, name, note, addr, category, rating, editId }
   // Used both to add a brand-new pin and to edit an existing one - editId
   // set means "Save" updates that pin in place instead of creating a new one.
   function openForm(opts){
@@ -723,13 +772,14 @@
     document.getElementById('pinName').value = opts.name || '';
     document.getElementById('pinNote').value = opts.note || '';
     setPendingCat(opts.category || 'food');
+    setPendingRating(opts.rating || 0);
     document.getElementById('formSave').textContent = pendingEditId ? 'Save changes' : 'Save pin';
     formSheet.hidden = false;
     scrim.hidden = false;
     setTimeout(function(){ document.getElementById('pinName').focus(); }, 50);
   }
   function openEditForm(p){
-    openForm({ title:'Edit pin', name:p.name, note:p.note, addr:p.addr, category:p.category, coord:{ lat:p.lat, lng:p.lng }, editId:p.id });
+    openForm({ title:'Edit pin', name:p.name, note:p.note, addr:p.addr, category:p.category, rating:p.rating, coord:{ lat:p.lat, lng:p.lng }, editId:p.id });
   }
   function closeForm(){
     formSheet.hidden = true;
@@ -738,6 +788,7 @@
     pendingCoord = null;
     pendingAddr = '';
     pendingEditId = null;
+    pendingRating = 0;
   }
   document.getElementById('formCancel').addEventListener('click', closeForm);
   document.getElementById('formSave').addEventListener('click', function(){
@@ -745,9 +796,9 @@
     if (!name || !pendingCoord){ document.getElementById('pinName').focus(); return; }
     var note = document.getElementById('pinNote').value.trim();
     if (pendingEditId){
-      updatePoint(pendingEditId, { name:name, note:note, addr:pendingAddr, category:pendingCat });
+      updatePoint(pendingEditId, { name:name, note:note, addr:pendingAddr, category:pendingCat, rating:pendingRating });
     } else {
-      addPoint({ name:name, note:note, addr:pendingAddr, category:pendingCat, lat:pendingCoord.lat, lng:pendingCoord.lng });
+      addPoint({ name:name, note:note, addr:pendingAddr, category:pendingCat, rating:pendingRating, lat:pendingCoord.lat, lng:pendingCoord.lng });
     }
     closeForm();
   });
